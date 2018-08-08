@@ -8,7 +8,6 @@
 #include "MyTypes.h"
 
 
-
 #define DEBUG_MODE false 
  
 
