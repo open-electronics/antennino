@@ -65,7 +65,7 @@ byte FIRMWAREVERSION = 1;
 byte NODEID  =  1;    
 
 // Deve essere lo stesso valore per tutti i nodi che devono comunicare
-// range: 1-255
+// range: 1-254
 byte NETWORKID = 1;  
 
 // Definisco quale dispositivo è il Gateway DATA
@@ -96,6 +96,7 @@ bool promiscuousMode = false;
 
 //*********************************************************************************************
 
+int senderID;
 
 
 
@@ -108,10 +109,15 @@ bool promiscuousMode = false;
 
 // Definisco i parametri per la memoria Flash
 #define FLASH_SS 8 
-#define MANUFACTURER_ID   0xEF30 
 
 
-
+//////////////////////////////////////////
+// flash(FLASH_SS, MANUFACTURER_ID)
+// FLASH_SS         - CS pin attached to SPI flash chip (8 in case of Moteino)
+// MANUFACTURER_ID - OPTIONAL, 0x1F44 for adesto(ex atmel) 4mbit flash
+//                             0xEF30 for windbond 4mbit flash
+//                             0x1F65 for AT25F512 ATMEL 512K (65,536 x 8) 
+#define MANUFACTURER_ID   0x1F65
 
 
 
@@ -119,7 +125,7 @@ bool promiscuousMode = false;
 SPIFlash flash(FLASH_SS, MANUFACTURER_ID); 
 
 
-//  DS18B20
+///  INIZIALIZZO DS18B20
 OneWire ourWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&ourWire);
 
@@ -178,7 +184,7 @@ void setup() {
 
  
  #if(DEBUG_MODE)
-  //delay(2000);
+  delay(2000);
  #endif
 
 
@@ -190,6 +196,18 @@ void setup() {
   #endif
 
   
+
+  #if (DEBUG_MODE)
+    Serial.println(F("***********************************"));
+    Serial.println(F("SOFTWARE SETTINGS:"));
+    Serial.print(F("FIRMWAREVERSION: "));Serial.println (FIRMWAREVERSION);
+    Serial.print(F("FAMILY: "));Serial.println (FAMILY);
+    Serial.println(F("***********************************"));
+    Serial.println("");
+  #endif 
+
+
+
   digitalWrite(LED ,HIGH);
 
 
@@ -198,6 +216,10 @@ void setup() {
   }else{
     Serial.println(F("SPI Flash Init FAIL!"));
   }
+
+
+  // Invio la richiesta di aggirnamento OTA
+  sendOTARequest();
 
 
   Serial.println("");
@@ -229,6 +251,21 @@ void setup() {
 void loop(){
   
      allarm = 0;
+     
+     if (radio.receiveDone()){      
+         senderID = radio.SENDERID;
+         Serial.print("Sender:");  
+         Serial.println(senderID);
+      
+         // Per ricevere aggiornamenti OTA
+         CheckForWirelessHEX(radio, flash, false); 
+                
+         if (radio.ACKRequested()) {         
+           radio.sendACK();
+           Serial.print(" - ACK sent");            
+         }     
+          
+      }
 
 
      if (triggerlevel > 200){
@@ -246,54 +283,22 @@ void loop(){
          sendData();   
       }
 
+
       if (number_of_attempts > 4 ){
          #if(DEBUG_MODE)
           Serial.println(F("--STOP TASK--"));
-          delay(30); 
           Serial.flush();
          #endif  
          digitalWrite(DONE_TASK ,HIGH);
       }
 
 
-   
-     // Invia una richiesta di aggiornamento al Gateway OTA
-     if (! allarm){
-        sendOTARequest();
-     }
-
-     
-     if (radio.receiveDone()){ 
-      
-          // Per ricevere aggiornamenti OTA
-          CheckForWirelessHEX(radio, flash, false); 
-          
-          #if(DEBUG_MODE)
-            Serial.print("Got [");
-            Serial.print(radio.SENDERID);
-            Serial.print(':');
-            Serial.print(radio.DATALEN);
-            Serial.print("] > ");    
-            for (byte i = 0; i < radio.DATALEN; i++)
-              Serial.print((char)radio.DATA[i], HEX);
-            Serial.println();
-          #endif
-
-      
-        if (radio.ACKRequested()) {     
-          byte theNodeID = radio.SENDERID;
-          radio.sendACK();
-          Serial.print(" - ACK sent");
-          delay(10);    
-        }     
-          
-      }
-
-
-    
-      triggerlevel = ReadTrigger();
+     triggerlevel = ReadTrigger();
  
 }
+
+
+
 
 
 
@@ -385,11 +390,10 @@ void sendData() {
     #if(DEBUG_MODE)
           Serial.println(" -> Reply OK!"); 
           Serial.println(F("--STOP TASK--"));
-          delay(30); 
-          Serial.flush();
-     #endif  
-     digitalWrite(DONE_TASK ,HIGH); 
-     packet_sent_correctly = true;  
+    #endif  
+    
+    digitalWrite(DONE_TASK ,HIGH); 
+    packet_sent_correctly = true;  
          
   }else { 
      #if(DEBUG_MODE)
@@ -421,18 +425,21 @@ void sendOTARequest() {
     Serial.print("  (");
     Serial.print(sizeof(dataOTA));
     Serial.print(" bytes) ");
-    Blink(LED, 30);
   #endif
 
   
   if (radio.sendWithRetry(OTA_GATEWAY_ID, (const void*)(&dataOTA), sizeof(dataOTA) , ACK_TIME)) {  
-     Serial.println(" -> Reply OK!");            
+     #if (DEBUG_MODE)
+       Serial.println(" -> Reply OK!");    
+     #endif   
   }else {
-     Serial.println(" -> NO reply..."); 
+     #if (DEBUG_MODE)
+       Serial.println(" -> NO reply..."); 
+	   #endif
   }
 
- 
 }
+
 
 
 

@@ -24,16 +24,14 @@ byte FAMILY =1;
 byte FIRMWAREVERSION = 1;
 //****************************************************************************************************************
 
-
-
-
 //*********************************************************************************************
 #define DEBUG_MODE true 
- 
-// POWER PIN
-#define SENSORS_POWER PD4
-#define TRIGGER_INPUT PD5
+   
 
+#define SERIAL_EN TRUE
+#define SERIAL_BAUD 115200
+
+#define SENSORS_POWER PD4
 // OUTPUT PIN
 #define LED 9 
 
@@ -86,7 +84,10 @@ byte OTA_GATEWAY_ID = 254;
 //Se setteto a true abilita la modalità Sniffing
 bool promiscuousMode = false; 
 
+
 //*********************************************************************************************
+
+int senderID;
 
 
 
@@ -95,16 +96,27 @@ bool promiscuousMode = false;
 #else
   RFM69 radio;
 #endif
-//*********************************************************************************************
+
 
 
 // Definisco i parametri per la memoria Flash
 #define FLASH_SS 8 
-#define MANUFACTURER_ID   0xEF30 
+
+
+//////////////////////////////////////////
+// flash(SPI_CS, MANUFACTURER_ID)
+// SPI_CS          - CS pin attached to SPI flash chip (8 in case of Moteino)
+// MANUFACTURER_ID - OPTIONAL, 0x1F44 for adesto(ex atmel) 4mbit flash
+//                             0xEF30 for windbond 4mbit flash
+//                             0x1F65 for AT25F512 ATMEL 512K (65,536 x 8) 
+#define MANUFACTURER_ID   0x1F65
+
+// INIZIALIZZO Il Modulo Chip Memory Flash
+SPIFlash flash(FLASH_SS, MANUFACTURER_ID); 
 
 
 
-#define SERIAL_BAUD 115200
+
 
 
 boolean requestACK = false;
@@ -119,8 +131,8 @@ int number_of_attempts=0;
 byte TriggerStatus = 0;
 
 
-// INIZIALIZZO Il Modulo Chip Memory Flash
-SPIFlash flash(FLASH_SS, MANUFACTURER_ID); 
+
+
 
 
 //  INIZIALIZZO DS18B20
@@ -148,8 +160,6 @@ byte batteryReportCycles = 0;
 
 
 
-
-
 void setup() {
   
   analogReference (DEFAULT);
@@ -161,7 +171,6 @@ void setup() {
   pinMode(SENSORS_POWER, OUTPUT);
 
 
-
   // Se la EEPROM è stata inizializzata, ricavo i parametri dalla EEPROM altrimenti salvo quelli presenti nel codice nella EEPROM
   if (EEPROM.read(0) == 1) {
     getparams();
@@ -171,8 +180,9 @@ void setup() {
   }
 
 
-  // Da rimuovere in produzione
-  delay(2000);
+ #if(DEBUG_MODE)
+  //delay(2000);
+ #endif
 
 
   radio.initialize(FREQUENCY,NODEID,NETWORKID);
@@ -237,38 +247,22 @@ void setup() {
 
 void loop(){
 
-
-     // Invia una richiesta di aggiornamento al Gateway OTA solo se non è stato rilevato un allarme
-     if (!TriggerDetected){
-       sendOTARequest();
-     }
-     
-
-    
-     if (radio.receiveDone()){    
+     if (radio.receiveDone()){  
+            
+          senderID = radio.SENDERID;
+          Serial.print("Sender:");  
+          Serial.println(senderID);
 
           // Per ricevere aggiornamenti OTA
           CheckForWirelessHEX(radio, flash, false); 
-          
-          #if (DEBUG_MODE)
-            Serial.print("Got [");
-            Serial.print(radio.SENDERID);
-            Serial.print(':');
-            Serial.print(radio.DATALEN);
-            Serial.print("] > ");    
-            for (byte i = 0; i < radio.DATALEN; i++)
-              Serial.print((char)radio.DATA[i], HEX);
-            Serial.println();
-          #endif
-         
-          if (radio.ACKRequested()) {     
-            byte theNodeID = radio.SENDERID;
+
+          if (radio.ACKRequested()) {      
             radio.sendACK();
-            Serial.print(" - ACK sent");
-            delay(10);    
-          }  
-           
+            Serial.print(" - ACK sent");   
+          }
+            
       }
+
 
      
       if (!packet_sent_correctly) {
@@ -291,9 +285,9 @@ void loop(){
           
           sendData();   
 
-            #if (DEBUG_MODE)
+          #if (DEBUG_MODE)
              Blink(LED,3);
-            #endif
+          #endif
             
      }  else if (batteryReportCycles >= BATT_CYCLES) {    
         // invio le notifiche sullo stato della batteria solo se sono in modalità LowPower
@@ -309,8 +303,17 @@ void loop(){
         batteryReportCycles=0;     
      }
 
+
+
+
+     if (!TriggerDetected){
+       sendOTARequest();
+     }
+
+
+
      Serial.flush();
-     
+     radio.receiveDone(); 
      if  (Sleep_Time >0) {
        for (byte i=0; i < Sleep_Time; i++) {  
         LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
@@ -430,7 +433,6 @@ void sendData() {
 
 
 void sendOTARequest() {
-
   //fill in the struct with new values
   dataOTA.family = FAMILY;
   dataOTA.fw_version = FIRMWAREVERSION;
@@ -446,10 +448,8 @@ void sendOTARequest() {
     Serial.print("  (");
     Serial.print(sizeof(dataOTA));
     Serial.print(" bytes) ");
-    Blink(LED, 30);
   #endif
 
-  
   if (radio.sendWithRetry(OTA_GATEWAY_ID, (const void*)(&dataOTA), sizeof(dataOTA) , ACK_TIME)) {    
      #if (DEBUG_MODE)
       Serial.println(" -> Reply OK!");    
@@ -457,7 +457,7 @@ void sendOTARequest() {
   }else {
     #if (DEBUG_MODE)
      Serial.println(" -> NO reply..."); 
-	  #endif
+	#endif
   }
 
 }

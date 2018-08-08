@@ -8,18 +8,18 @@
 #include "MyTypes.h"
 
 
-#define TIME_OUT 30000L  
-#define DEBUG_MODE false    
+#define TIME_OUT 45000L  
+#define DEBUG_MODE true    
 #define SERIAL_BAUD 115200
-#define LED  9 
-#define FLASH_SS  8 
+#define LED 9 
+#define FLASH_SS 8 
 
 
 #define P1_INPUT 4
 #define P2_INPUT 5
 #define LED_V 6
 #define LED_R 7
-#define TIMEOUT_OTA    3000
+#define TIMEOUT_OTA 4000
 
 
 
@@ -33,6 +33,7 @@
 #define READ_FLASH "READ_FLASH"
 #define SET_PARAMETERS "SET_PARAMETERS"
 #define SET_TARGET "SET_TARGET"
+#define TEST "TEST"
 
 
 
@@ -40,9 +41,13 @@
 
 
 
-
-
-SPIFlash flash(FLASH_SS, 0xEF30);
+//////////////////////////////////////////
+// flash(SPI_CS, MANUFACTURER_ID)
+// SPI_CS          - CS pin attached to SPI flash chip (8 in case of Moteino)
+// MANUFACTURER_ID - OPTIONAL, 0x1F44 for adesto(ex atmel) 4mbit flash
+//                             0xEF30 for windbond 4mbit flash
+//                             0x1F65 for AT25F512 ATMEL 512K (65,536 x 8) 
+SPIFlash flash(FLASH_SS, 0x1F65);
 
 
 
@@ -61,10 +66,12 @@ uint8_t valoreb;
 
 
 
-byte FIRMWAREVERSION;
-byte FAMILY;
+byte FIRMWAREVERSION =2;
+byte FAMILY =1;
 byte REMOTE_FIRMWAREVERSION;
 byte REMOTE_FAMILY;
+
+
 
 
 
@@ -95,13 +102,13 @@ byte NETWORKID = 1;
 #define ENCRYPTKEY  "sampleEncryptKey" 
 
 // Specifica di usare il meccanismo di autonegoziazione della potenza di trasmissione ATC
-#define ENABLE_ATC 
+//#define ENABLE_ATC 
 
 // SE ATC abilitato definisce il livello minimo di RSSI
-#define ATC_RSSI  -80
+#define ATC_RSSI -80
 
 // Definisce l'intervallo di Acknoledge
-#define ACK_TIME   300
+#define ACK_TIME 300
 
 //Se setteto a true abilita la modalità Sniffing
 bool promiscuousMode = false; 
@@ -136,11 +143,11 @@ void setup(){
  
   Serial.begin(SERIAL_BAUD);
 
-  pinMode( LED_R, OUTPUT);
-  pinMode( LED_V, OUTPUT);
+  //pinMode( LED_R, OUTPUT);
+  //pinMode( LED_V, OUTPUT);
   
-  digitalWrite(LED_V, LOW);
-  digitalWrite(LED_R, HIGH);
+  //digitalWrite(LED_V, LOW);
+  //digitalWrite(LED_R, HIGH);
 
 
   Serial.println(F("ENTER SETUP"));
@@ -178,6 +185,7 @@ void setup(){
   sCmd.addCommand(READ_FLASH, read_flash_table);
   sCmd.addCommand(SET_PARAMETERS, set_Parameters); 
   sCmd.addCommand(SET_TARGET, set_Target); 
+  sCmd.addCommand(TEST, Test);
   sCmd.setDefaultHandler(unrecognized); 
     
   Serial.println(F("Ready"));
@@ -189,6 +197,10 @@ void setup(){
 
 
 void loop() {
+  
+  // DEBUG
+  //programming=2;
+
 
   if (programming == -1){ 
      sCmd.readSerial();
@@ -217,8 +229,6 @@ void loop() {
 
 
 
-
-
 void showHelp(){
 Serial.println(F("Commands available:"));
 Serial.println("");
@@ -230,8 +240,8 @@ Serial.println(F(ERASE_FLASH));
 Serial.println(F(READ_FLASH));
 Serial.println(F(SET_PARAMETERS));
 Serial.println(F(SET_TARGET));
+Serial.println(F(TEST));
 }
-
 
 
 
@@ -261,11 +271,11 @@ void getFlasData(){
             flash.writeByte(index, valoreb);   
           }  
       }
+
        
        if(timeLastInput - StartTime > TIME_OUT) {
             Serial.println(F("Time out!"));
-            Serial.println(F("Now Ready for other commands"));
-            
+            Serial.println(F("Now Ready for other commands"));       
             index = 0;
             programming = -1;
             break;
@@ -281,22 +291,19 @@ void getFlasData(){
 
 void SendOTAUpdate(){
       // N.B. In questa porzione di codice non devo fare operazioni critiche dal punto di vista computazionale e NESSUN delay !!!!
-
-
       if (!ProgramProcessIsComplete()){  
-        CheckForFlashHEX(flash, radio, targetID, TIMEOUT_OTA, ACK_TIME, false);
+        CheckForFlashHEX(flash, radio, targetID, TIMEOUT_OTA, ACK_TIME, true);
       }
 
-   
+      /*
       if (radio.ACKRequested()) {  
           radio.sendACK();
           Serial.print(F(" - > ACK sent."));         
           Serial.println();
       }
-                     
-     
-      Serial.flush();
-    
+      */
+                   
+      Serial.flush(); 
 }
 
 
@@ -334,7 +341,8 @@ if (radio.receiveDone()){
                       REMOTE_FAMILY = dataOTA.family;
         
                    #if (DEBUG_MODE)
-                      Serial.print(F("targetID:"));
+                      Serial.print(F("Target ID:"));
+                      
                       Serial.println(targetID);  
                       Serial.print(F("PAYLOAD: ["));
                       Serial.print(F(" REMOTE_FAMILY="));
@@ -355,7 +363,9 @@ if (radio.receiveDone()){
                       }else {              
                          if (FIRMWAREVERSION > REMOTE_FIRMWAREVERSION) {
                              flag = true;  
-                             Serial.println(F("UPDATE IN PROGRESS...... PLEASE WAIT!"));                      
+                             Serial.print (F("UPDATE NODE "));
+                             Serial.print (targetID);
+                             Serial.println(F(" IN PROGRESS... PLEASE WAIT!")); 
                          }else{
                              flag = false;
                              Serial.println(F("UPDATE UNNECESSARY!"));              
@@ -363,7 +373,7 @@ if (radio.receiveDone()){
                       }
         
                    }else{
-                  
+               
                       Serial.print(F("Invalid payload: "));
                       Serial.print("[");Serial.print(radio.SENDERID, DEC);Serial.print("] ");     
                       for (byte i = 0; i < radio.DATALEN; i++){
@@ -372,30 +382,29 @@ if (radio.receiveDone()){
                       Serial.print(F(" [RX_RSSI:"));Serial.print(radio.RSSI);Serial.print("]");
                       Serial.println("");
                    }
-                         
+    
+                  if (flag) {        
+                      CheckForFlashHEX(flash, radio, targetID, TIMEOUT_OTA, ACK_TIME, false);                                                                    
+                  }
                 
-                  if (flag) {   
-                      CheckForFlashHEX(flash, radio, targetID, TIMEOUT_OTA, ACK_TIME, false);              
-                  }
-        
-                  if (radio.ACKRequested()) {  
-                     radio.sendACK();
-                     Serial.print(F(" - > ACK sent."));      
-                     Serial.println();
-                  }
-                  
        }else {
             Serial.print(F("PROGRAMMER IS BUSY SERVING NODE ID:"));
             Serial.println(targetID);
        }
 
-                       
+
+
+       if (radio.ACKRequested()) {  
+        radio.sendACK();
+        Serial.print(F(" - > ACK sent."));      
+        Serial.println();
+       }
+          
      }
 
- 
+
      Serial.flush();
      
-
 }
 
 
@@ -544,6 +553,18 @@ void set_Target() {
     Serial.println(F("No arguments"));
   }
 }
+
+
+
+
+
+void Test() {
+  Serial.println("SEND TEST");
+  if (radio.sendWithRetry(1, "TEST", 3, 30)) {      
+     Serial.println("FEEDBACK");                     
+  }   
+}
+
 
 
 
