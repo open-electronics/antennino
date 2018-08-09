@@ -32,6 +32,8 @@ byte FIRMWAREVERSION = 1;
 #define SERIAL_BAUD 115200
 
 #define SENSORS_POWER PD4
+#define TRIGGER_INPUT PD5
+
 // OUTPUT PIN
 #define LED 9 
 
